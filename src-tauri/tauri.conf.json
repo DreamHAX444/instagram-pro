@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Instagram Chat History Viewer",
         "width": 1000,
         "height": 700,
