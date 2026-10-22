@@ -24,3 +24,4 @@ hex = "0.4"
 dirs = "7"
 thiserror = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+rfd = "0.15"
