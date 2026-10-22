@@ -1,7 +1,10 @@
 pub mod db;
 pub mod importer;
 pub mod media;
+pub mod monitor;
 pub mod queries;
+pub mod settings;
+pub mod windows_integration;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -37,7 +40,8 @@ fn get_app_status() -> Result<AppStatus, String> {
         architecture: std::env::consts::ARCH.to_string(),
         target_os: std::env::consts::OS.to_string(),
         local_first_mode: true,
-        phase: "Phase 4: Dashboard, Conversation Viewer & Chat Interface".to_string(),
+        phase: "Phase 5: Windows Packaging, Automatic Startup & Local Archive Monitoring"
+            .to_string(),
         database_ready: db_ready,
     })
 }
@@ -273,7 +277,104 @@ async fn locate_missing_media(
     }))
 }
 
+#[tauri::command]
+fn get_app_settings() -> Result<settings::AppSettings, String> {
+    let mut s = settings::load_settings();
+    if let Ok(reg) = windows_integration::is_autostart_registered() {
+        s.autostart_enabled = reg;
+    }
+    Ok(s)
+}
+
+#[tauri::command]
+fn save_app_settings(new_settings: settings::AppSettings) -> Result<(), String> {
+    settings::save_settings(&new_settings)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_autostart(enabled: bool) -> Result<bool, String> {
+    if enabled {
+        let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        windows_integration::register_autostart(&current_exe)?;
+    } else {
+        windows_integration::unregister_autostart()?;
+    }
+    let mut s = settings::load_settings();
+    s.autostart_enabled = enabled;
+    let _ = settings::save_settings(&s);
+    windows_integration::is_autostart_registered()
+}
+
+#[tauri::command]
+async fn pick_monitored_folder() -> Result<Option<String>, String> {
+    let folder = rfd::AsyncFileDialog::new()
+        .set_title("Select Folder for Automatic Archive Monitoring")
+        .pick_folder()
+        .await;
+    Ok(folder.map(|f| f.path().to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+fn check_monitored_folder_now() -> Result<monitor::MonitorStatus, String> {
+    let mut db = db::Database::open_default().map_err(|e| e.to_string())?;
+    let media_dir = get_media_root_dir()?;
+    Ok(monitor::run_monitoring_check(
+        &mut db,
+        &media_dir,
+        "default_user",
+    ))
+}
+
+#[tauri::command]
+fn get_monitoring_status() -> Result<monitor::MonitorStatus, String> {
+    let settings = settings::load_settings();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    if !settings.monitor_folder_enabled {
+        return Ok(monitor::MonitorStatus {
+            state: monitor::MonitorState::Disabled,
+            monitored_folder: settings.monitored_folder_path,
+            last_checked_at_ms: Some(now_ms),
+            message: "Local archive monitoring is disabled.".to_string(),
+        });
+    }
+
+    if let Some(folder) = &settings.monitored_folder_path {
+        let p = std::path::Path::new(folder);
+        if !p.exists() || !p.is_dir() {
+            return Ok(monitor::MonitorStatus {
+                state: monitor::MonitorState::Error(format!("Folder '{}' not found", folder)),
+                monitored_folder: Some(folder.clone()),
+                last_checked_at_ms: Some(now_ms),
+                message: "Monitored folder is missing or inaccessible.".to_string(),
+            });
+        }
+        Ok(monitor::MonitorStatus {
+            state: monitor::MonitorState::Idle,
+            monitored_folder: Some(folder.clone()),
+            last_checked_at_ms: Some(now_ms),
+            message: format!("Watching folder: {}", folder),
+        })
+    } else {
+        Ok(monitor::MonitorStatus {
+            state: monitor::MonitorState::Disabled,
+            monitored_folder: None,
+            last_checked_at_ms: Some(now_ms),
+            message: "No folder selected.".to_string(),
+        })
+    }
+}
+
 pub fn get_media_root_dir() -> Result<PathBuf, String> {
+    if let Ok(override_path) = std::env::var("INSTAGRAM_VIEWER_MEDIA_PATH") {
+        let dir = PathBuf::from(override_path);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        return Ok(dir);
+    }
     let dir = dirs::data_local_dir()
         .ok_or_else(|| "Could not resolve local app data directory".to_string())?
         .join("InstagramChatHistoryViewer")
@@ -284,8 +385,36 @@ pub fn get_media_root_dir() -> Result<PathBuf, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // TRD.md Section 7.2: Session-local named mutex prevents duplicate application instances
+    let _instance_guard = match windows_integration::acquire_single_instance(
+        windows_integration::SINGLE_INSTANCE_MUTEX_NAME,
+    ) {
+        Ok(Some(guard)) => Some(guard),
+        Ok(None) => {
+            eprintln!("Another instance of Instagram Chat History Viewer is already running in this user session. Exiting.");
+            std::process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("Warning: Failed to acquire session mutex: {}", e);
+            None
+        }
+    };
+
     let media_root = get_media_root_dir().unwrap_or_else(|_| PathBuf::from("media"));
     let media_root_clone = media_root.clone();
+
+    // Start background thread for local archive folder monitoring
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        let s = settings::load_settings();
+        if s.monitor_folder_enabled {
+            if let (Ok(mut db), Ok(media_dir)) =
+                (db::Database::open_default(), get_media_root_dir())
+            {
+                let _ = monitor::run_monitoring_check(&mut db, &media_dir, "default_user");
+            }
+        }
+    });
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -304,7 +433,13 @@ pub fn run() {
             search_messages,
             pick_archive_file,
             pick_archive_folder,
-            locate_missing_media
+            locate_missing_media,
+            get_app_settings,
+            save_app_settings,
+            set_autostart,
+            pick_monitored_folder,
+            check_monitored_folder_now,
+            get_monitoring_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -333,7 +468,7 @@ mod tests {
         assert!(status.local_first_mode);
         assert_eq!(
             status.phase,
-            "Phase 4: Dashboard, Conversation Viewer & Chat Interface"
+            "Phase 5: Windows Packaging, Automatic Startup & Local Archive Monitoring"
         );
     }
 }

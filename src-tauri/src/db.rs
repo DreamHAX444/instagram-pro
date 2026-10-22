@@ -59,6 +59,9 @@ pub fn apply_pragmas(conn: &Connection) -> Result<(), DbError> {
 /// Resolves standard Windows application local data directory:
 /// `%LOCALAPPDATA%\InstagramChatHistoryViewer\database\chat.db`
 pub fn get_default_database_path() -> Result<PathBuf, DbError> {
+    if let Ok(override_path) = std::env::var("INSTAGRAM_VIEWER_DB_PATH") {
+        return Ok(PathBuf::from(override_path));
+    }
     let local_data = dirs::data_local_dir().ok_or_else(|| {
         DbError::PathError("Could not resolve local app data directory".to_string())
     })?;

@@ -133,25 +133,67 @@ export interface SearchResults {
   results: SearchResultItem[];
 }
 
+export interface DiscoveredConversation {
+  source_id: string;
+  title: string | null;
+  json_files: string[];
+  participants: string[];
+}
+
 export interface ValidationSummary {
-  archive_format: string;
-  detected_account_id: string | null;
-  total_conversations_found: number;
-  total_message_files_found: number;
   is_valid: boolean;
+  is_empty: boolean;
+  source_type: string;
+  dataset_fingerprint: string;
+  conversations: DiscoveredConversation[];
+  total_message_files: number;
+  attachment_candidates: number;
   warnings: string[];
+  errors: string[];
 }
 
 export interface ImportReport {
   job_id: string;
-  conversations_found: number;
-  conversations_processed: number;
+  source_path: string;
+  dataset_fingerprint: string;
+  started_at_ms: number;
+  completed_at_ms: number | null;
+  status: string;
+  conversations_discovered: number;
+  conversations_imported: number;
+  messages_processed: number;
   messages_imported: number;
   messages_skipped: number;
+  attachments_discovered: number;
   attachments_imported: number;
   attachments_missing: number;
   call_events_imported: number;
+  reactions_imported: number;
   warnings: string[];
   errors: string[];
-  status: string;
+}
+
+export interface AppSettings {
+  autostart_enabled: boolean;
+  monitor_folder_enabled: boolean;
+  monitored_folder_path: string | null;
+  last_imported_archive_fingerprint: string | null;
+  last_imported_archive_name: string | null;
+  last_imported_at_ms: number | null;
+  last_import_status: string | null;
+  last_import_error: string | null;
+}
+
+export type MonitorState =
+  | 'Disabled'
+  | 'Idle'
+  | 'Scanning'
+  | 'Importing'
+  | { Error: string };
+
+export interface MonitorStatus {
+  state: MonitorState;
+  monitored_folder: string | null;
+  last_checked_at_ms: number | null;
+  message: string;
 }

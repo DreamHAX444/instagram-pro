@@ -16,6 +16,8 @@ import {
   ValidationSummary,
   ImportReport,
   AttachmentView,
+  AppSettings,
+  MonitorStatus,
 } from './types';
 
 // SVG Icons (Clean Lucide / Instagram Style)
@@ -33,6 +35,8 @@ const ICONS = {
   external: `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>`,
   alert: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
   reel: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>`,
+  settings: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`,
+  refresh: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>`,
 };
 
 // Application State
@@ -82,10 +86,15 @@ function renderBaseLayout(): void {
             <div class="brand-icon">💬</div>
             <span>Instagram Chat</span>
           </div>
-          <button id="import-btn" class="import-trigger-btn" title="Import Instagram Data Archive">
-            ${ICONS.import}
-            <span>Import</span>
-          </button>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button id="import-btn" class="import-trigger-btn" title="Import Instagram Data Archive">
+              ${ICONS.import}
+              <span>Import</span>
+            </button>
+            <button id="settings-btn" class="icon-btn" title="Settings & Folder Monitoring" aria-label="Settings">
+              ${ICONS.settings}
+            </button>
+          </div>
         </div>
 
         <div class="sidebar-search-area">
@@ -192,6 +201,11 @@ function bindSidebarEvents(): void {
 
   importBtn.addEventListener('click', () => {
     openImportModal();
+  });
+
+  const settingsBtn = document.querySelector<HTMLButtonElement>('#settings-btn');
+  settingsBtn?.addEventListener('click', () => {
+    openSettingsModal();
   });
 
   filterPills.forEach((pill) => {
@@ -1100,17 +1114,26 @@ function openImportModal(): void {
 
     try {
       const summary = await invoke<ValidationSummary>('validate_archive_path', {
-        archive_path: archivePath,
+        archivePath,
       });
 
-      if (summary.is_valid) {
+      const hasConversations = summary.conversations && summary.conversations.length > 0;
+      if (hasConversations || summary.is_valid) {
+        const errorNote = summary.errors && summary.errors.length > 0
+          ? `<div style="margin-top: 6px; color: #f59e0b; font-size: 12px;">⚠️ Note: ${summary.errors.length} file(s) had errors and will be safely skipped.</div>`
+          : '';
+        const warningNote = summary.warnings && summary.warnings.length > 0
+          ? `<div style="margin-top: 4px; color: #f59e0b; font-size: 12px;">⚠️ ${escapeHtml(summary.warnings.join(', '))}</div>`
+          : '';
+
         validationCard.innerHTML = `
           <div style="background-color: rgba(16, 185, 129, 0.15); border: 1px solid var(--color-success); border-radius: 8px; padding: 12px; font-size: 13px;">
             <div style="font-weight: 600; color: #34d399; margin-bottom: 4px;">✓ Valid Instagram Archive Found</div>
-            <div><strong>Format:</strong> ${summary.archive_format}</div>
-            <div><strong>Conversations found:</strong> ${summary.total_conversations_found}</div>
-            <div><strong>Message JSON files:</strong> ${summary.total_message_files_found}</div>
-            ${summary.detected_account_id ? `<div><strong>Detected Account:</strong> @${summary.detected_account_id}</div>` : ''}
+            <div><strong>Format:</strong> ${escapeHtml(summary.source_type)}</div>
+            <div><strong>Conversations found:</strong> ${summary.conversations ? summary.conversations.length : 0}</div>
+            <div><strong>Message JSON files:</strong> ${summary.total_message_files}</div>
+            ${errorNote}
+            ${warningNote}
           </div>
         `;
         startImportBtn.disabled = false;
@@ -1159,8 +1182,8 @@ function openImportModal(): void {
 
     try {
       const report = await invoke<ImportReport>('import_archive_path', {
-        archive_path: archivePath,
-        account_id: null,
+        archivePath,
+        accountId: null,
       });
 
       progressCard.innerHTML = `
@@ -1169,7 +1192,7 @@ function openImportModal(): void {
             🎉 Import ${report.status === 'SUCCESS' ? 'Complete' : 'Completed with Notes'}
           </div>
           <div style="line-height: 1.6;">
-            <div><strong>Conversations imported:</strong> ${report.conversations_processed}</div>
+            <div><strong>Conversations imported:</strong> ${report.conversations_imported}</div>
             <div><strong>Messages imported:</strong> ${report.messages_imported}</div>
             <div><strong>Duplicate messages skipped:</strong> ${report.messages_skipped}</div>
             <div><strong>Media files stored:</strong> ${report.attachments_imported}</div>
@@ -1196,6 +1219,248 @@ function openImportModal(): void {
       validateBtn.disabled = false;
     }
   });
+}
+
+// Settings & Monitoring Modal
+async function openSettingsModal(): Promise<void> {
+  const container = document.querySelector<HTMLDivElement>('#modal-container')!;
+
+  // Render modal skeleton
+  container.innerHTML = `
+    <div class="modal-backdrop">
+      <div class="modal-card" style="max-width: 540px;">
+        <div class="modal-header">
+          <div style="font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 8px;">
+            ${ICONS.settings}
+            <span>Settings & Monitoring</span>
+          </div>
+          <button id="modal-close" class="icon-btn" title="Close">${ICONS.close}</button>
+        </div>
+        <div class="modal-body" id="settings-modal-body">
+          <div class="state-container" style="padding: 24px 0;">
+            <div class="spinner"></div>
+            <p style="margin-top: 10px; font-size: 13px;">Loading settings...</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="settings-close-btn" class="btn-primary">Done</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const closeModal = () => {
+    container.innerHTML = '';
+    window.removeEventListener('keydown', onKeyDown);
+  };
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') closeModal();
+  };
+  window.addEventListener('keydown', onKeyDown);
+
+  const backdrop = container.querySelector('.modal-backdrop');
+  backdrop?.addEventListener('click', (e) => {
+    if (e.target === backdrop) closeModal();
+  });
+
+  const closeBtn = container.querySelector<HTMLButtonElement>('#modal-close');
+  closeBtn?.addEventListener('click', closeModal);
+
+  const doneBtn = container.querySelector<HTMLButtonElement>('#settings-close-btn');
+  doneBtn?.addEventListener('click', closeModal);
+
+  try {
+    const settings = await invoke<AppSettings>('get_app_settings');
+    const status = await invoke<MonitorStatus>('get_monitoring_status');
+    renderSettingsContent(settings, status);
+  } catch (err) {
+    const body = container.querySelector<HTMLDivElement>('#settings-modal-body');
+    if (body) {
+      body.innerHTML = `
+        <div style="background-color: rgba(239, 68, 68, 0.15); border: 1px solid var(--color-danger); border-radius: 8px; padding: 12px; font-size: 13px; color: #fca5a5;">
+          <div style="font-weight: 600;">Failed to load settings:</div>
+          <div>${escapeHtml(String(err))}</div>
+        </div>
+      `;
+    }
+  }
+
+  function renderSettingsContent(currentSettings: AppSettings, monitorStatus: MonitorStatus): void {
+    const body = container.querySelector<HTMLDivElement>('#settings-modal-body');
+    if (!body) return;
+
+    let statusPillHtml = '';
+    const stateVal = typeof monitorStatus.state === 'string' ? monitorStatus.state : 'Error';
+    if (stateVal === 'Disabled') {
+      statusPillHtml = `<span class="status-pill disabled">Disabled</span>`;
+    } else if (stateVal === 'Idle') {
+      statusPillHtml = `<span class="status-pill idle">● Active (Watching)</span>`;
+    } else if (stateVal === 'Scanning' || stateVal === 'Importing') {
+      statusPillHtml = `<span class="status-pill idle"><div class="spinner" style="width: 10px; height: 10px; border-width: 1.5px; display: inline-block;"></div> ${stateVal}</span>`;
+    } else {
+      statusPillHtml = `<span class="status-pill error">⚠️ Error</span>`;
+    }
+
+    const lastImportHtml = currentSettings.last_imported_archive_name
+      ? `
+        <div style="background: var(--bg-hover); border-radius: 8px; padding: 10px 12px; font-size: 12px; margin-top: 8px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+            <span style="color: var(--text-muted);">Last archive:</span>
+            <span style="font-weight: 500; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(currentSettings.last_imported_archive_name)}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+            <span style="color: var(--text-muted);">Status:</span>
+            <span style="color: ${currentSettings.last_import_status === 'COMPLETED' ? '#34d399' : '#f59e0b'}; font-weight: 600;">${escapeHtml(currentSettings.last_import_status || 'UNKNOWN')}</span>
+          </div>
+          ${
+            currentSettings.last_imported_at_ms
+              ? `<div style="display: flex; justify-content: space-between;">
+                   <span style="color: var(--text-muted);">Imported:</span>
+                   <span>${new Date(currentSettings.last_imported_at_ms).toLocaleString()}</span>
+                 </div>`
+              : ''
+          }
+          ${
+            currentSettings.last_import_error
+              ? `<div style="color: #fca5a5; margin-top: 4px;">Error: ${escapeHtml(currentSettings.last_import_error)}</div>`
+              : ''
+          }
+        </div>
+      `
+      : `<div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">No archives imported yet via folder monitoring.</div>`;
+
+    body.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <!-- Windows Startup -->
+        <div style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 14px;">
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <span class="toggle-title">Launch on Windows Startup</span>
+              <span class="toggle-desc">Automatically starts with Windows in unprivileged user mode.</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="autostart-toggle" ${currentSettings.autostart_enabled ? 'checked' : ''}>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Local Archive Monitoring -->
+        <div style="border-bottom: 1px solid var(--border-subtle); padding-bottom: 14px;">
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <span class="toggle-title">Automatic Archive Import</span>
+              <span class="toggle-desc">Watches a local folder for new Instagram data exports.</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="monitor-toggle" ${currentSettings.monitor_folder_enabled ? 'checked' : ''}>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+
+          <div id="monitor-folder-section" style="margin-top: 10px; display: ${currentSettings.monitor_folder_enabled ? 'flex' : 'none'}; flex-direction: column; gap: 8px;">
+            <label style="font-size: 12px; color: var(--text-muted);">Monitored Folder:</label>
+            <div style="display: flex; gap: 8px;">
+              <input id="monitored-folder-path" class="search-input" type="text" readonly
+                value="${escapeHtml(currentSettings.monitored_folder_path || '')}"
+                placeholder="No folder selected..." style="height: 36px; flex: 1; cursor: default; background: var(--bg-hover);">
+              <button id="pick-folder-action-btn" class="btn-secondary" style="height: 36px; padding: 0 12px; font-size: 12px; white-space: nowrap;">
+                Browse...
+              </button>
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 6px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 12px; color: var(--text-muted);">Status:</span>
+                <span id="monitor-status-pill">${statusPillHtml}</span>
+              </div>
+              <button id="check-folder-now-btn" class="btn-secondary" style="height: 28px; padding: 0 10px; font-size: 11px; display: flex; align-items: center; gap: 4px;">
+                ${ICONS.refresh} Check Now
+              </button>
+            </div>
+
+            <div id="check-feedback" style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+              ${escapeHtml(monitorStatus.message || '')}
+            </div>
+
+            <!-- Last Import Summary -->
+            <div style="margin-top: 6px;">
+              <span style="font-size: 12px; font-weight: 500; color: var(--text-secondary);">Last Automatic Import</span>
+              ${lastImportHtml}
+            </div>
+          </div>
+        </div>
+
+        <!-- Local Privacy Notice -->
+        <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--text-secondary); line-height: 1.4;">
+          <strong style="color: #60a5fa;">🔒 Local-First Privacy Notice:</strong>
+          All operations run entirely on your local machine. No credentials, tokens, cookies, or chat messages ever leave this device.
+        </div>
+      </div>
+    `;
+
+    // Event Listeners for controls
+    const autostartToggle = body.querySelector<HTMLInputElement>('#autostart-toggle');
+    autostartToggle?.addEventListener('change', async () => {
+      const enabled = autostartToggle.checked;
+      try {
+        const actual = await invoke<boolean>('set_autostart', { enabled });
+        autostartToggle.checked = actual;
+        currentSettings.autostart_enabled = actual;
+      } catch (err) {
+        alert(`Failed to update startup setting: ${err}`);
+        autostartToggle.checked = !enabled;
+      }
+    });
+
+    const monitorToggle = body.querySelector<HTMLInputElement>('#monitor-toggle');
+    const folderSection = body.querySelector<HTMLDivElement>('#monitor-folder-section');
+    monitorToggle?.addEventListener('change', async () => {
+      const enabled = monitorToggle.checked;
+      currentSettings.monitor_folder_enabled = enabled;
+      if (folderSection) folderSection.style.display = enabled ? 'flex' : 'none';
+      try {
+        await invoke('save_app_settings', { newSettings: currentSettings });
+        const refreshedStatus = await invoke<MonitorStatus>('get_monitoring_status');
+        renderSettingsContent(currentSettings, refreshedStatus);
+      } catch (err) {
+        alert(`Failed to save monitoring setting: ${err}`);
+      }
+    });
+
+    const browseBtn = body.querySelector<HTMLButtonElement>('#pick-folder-action-btn');
+    browseBtn?.addEventListener('click', async () => {
+      try {
+        const folder = await invoke<string | null>('pick_monitored_folder');
+        if (folder) {
+          currentSettings.monitored_folder_path = folder;
+          await invoke('save_app_settings', { newSettings: currentSettings });
+          const refreshedStatus = await invoke<MonitorStatus>('get_monitoring_status');
+          renderSettingsContent(currentSettings, refreshedStatus);
+        }
+      } catch (err) {
+        alert(`Failed to select folder: ${err}`);
+      }
+    });
+
+    const checkNowBtn = body.querySelector<HTMLButtonElement>('#check-folder-now-btn');
+    checkNowBtn?.addEventListener('click', async () => {
+      checkNowBtn.disabled = true;
+      const feedback = body.querySelector<HTMLDivElement>('#check-feedback');
+      if (feedback) feedback.textContent = 'Checking monitored folder...';
+      try {
+        const newStatus = await invoke<MonitorStatus>('check_monitored_folder_now');
+        const refreshedSettings = await invoke<AppSettings>('get_app_settings');
+        renderSettingsContent(refreshedSettings, newStatus);
+        loadConversations();
+      } catch (err) {
+        if (feedback) feedback.textContent = `Check failed: ${err}`;
+      } finally {
+        checkNowBtn.disabled = false;
+      }
+    });
+  }
 }
 
 // Utility Helpers
