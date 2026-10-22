@@ -19,6 +19,9 @@ Thumbs.db
 [Dd]esktop.ini
 .DS_Store
 
+# Temporary local setup scripts
+install_msvc_buildtools.cmd
+
 # IDE / Editor
 .vscode/*
 !.vscode/extensions.json

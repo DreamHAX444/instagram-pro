@@ -8,6 +8,7 @@ interface AppStatus {
   target_os: string;
   local_first_mode: boolean;
   phase: string;
+  database_ready: boolean;
 }
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
