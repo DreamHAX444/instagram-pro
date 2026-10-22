@@ -268,12 +268,12 @@ impl Database {
             match f.to_ascii_lowercase().as_str() {
                 "audio" => {
                     where_clauses.push(
-                        "EXISTS (SELECT 1 FROM messages m JOIN attachments a ON a.message_id = m.id WHERE m.conversation_id = c.id AND a.attachment_type = 'audio')".to_string()
+                        "EXISTS (SELECT 1 FROM messages m JOIN attachments a ON a.message_id = m.id WHERE m.conversation_id = c.id AND UPPER(a.attachment_type) = 'AUDIO')".to_string()
                     );
                 }
                 "media" | "images" | "videos" => {
                     where_clauses.push(
-                        "EXISTS (SELECT 1 FROM messages m JOIN attachments a ON a.message_id = m.id WHERE m.conversation_id = c.id AND a.attachment_type IN ('image', 'video'))".to_string()
+                        "EXISTS (SELECT 1 FROM messages m JOIN attachments a ON a.message_id = m.id WHERE m.conversation_id = c.id AND UPPER(a.attachment_type) IN ('IMAGE', 'VIDEO'))".to_string()
                     );
                 }
                 "links" => {
@@ -406,7 +406,7 @@ impl Database {
         let total_audio: u64 = conn.query_row(
             "SELECT COUNT(*) FROM messages m
              JOIN attachments a ON a.message_id = m.id
-             WHERE m.conversation_id = ?1 AND a.attachment_type = 'audio'",
+             WHERE m.conversation_id = ?1 AND UPPER(a.attachment_type) = 'AUDIO'",
             params![conversation_id],
             |r| r.get::<_, i64>(0).map(|c| c as u64),
         )?;
@@ -414,7 +414,7 @@ impl Database {
         let total_images: u64 = conn.query_row(
             "SELECT COUNT(*) FROM messages m
              JOIN attachments a ON a.message_id = m.id
-             WHERE m.conversation_id = ?1 AND a.attachment_type = 'image'",
+             WHERE m.conversation_id = ?1 AND UPPER(a.attachment_type) = 'IMAGE'",
             params![conversation_id],
             |r| r.get::<_, i64>(0).map(|c| c as u64),
         )?;
@@ -422,7 +422,7 @@ impl Database {
         let total_videos: u64 = conn.query_row(
             "SELECT COUNT(*) FROM messages m
              JOIN attachments a ON a.message_id = m.id
-             WHERE m.conversation_id = ?1 AND a.attachment_type = 'video'",
+             WHERE m.conversation_id = ?1 AND UPPER(a.attachment_type) = 'VIDEO'",
             params![conversation_id],
             |r| r.get::<_, i64>(0).map(|c| c as u64),
         )?;
@@ -479,10 +479,10 @@ impl Database {
         if let Some(f) = filter {
             match f.to_ascii_lowercase().as_str() {
                 "audio" => {
-                    where_clause.push_str(" AND EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND a.attachment_type = 'audio')");
+                    where_clause.push_str(" AND EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND UPPER(a.attachment_type) = 'AUDIO')");
                 }
                 "media" | "images" | "videos" => {
-                    where_clause.push_str(" AND EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND a.attachment_type IN ('image', 'video'))");
+                    where_clause.push_str(" AND EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id AND UPPER(a.attachment_type) IN ('IMAGE', 'VIDEO'))");
                 }
                 "links" => {
                     where_clause
@@ -608,7 +608,7 @@ impl Database {
 
         let (count_sql, select_sql) = if let Some(_cid) = conversation_id {
             (
-                "SELECT COUNT(*) FROM messages m WHERE m.conversation_id = ?1 AND m.content LIKE ?2".to_string(),
+                "SELECT COUNT(*) FROM messages m WHERE m.conversation_id = ?1 AND (m.content LIKE ?2 OR m.raw_payload_json LIKE ?2)".to_string(),
                 format!(
                     "SELECT m.id, m.conversation_id, m.sender_id, m.source_message_id,
                             m.message_type, m.content, m.timestamp_ms, m.is_outgoing,
@@ -618,14 +618,14 @@ impl Database {
                      FROM messages m
                      JOIN participants p ON p.id = m.sender_id
                      JOIN conversations c ON c.id = m.conversation_id
-                     WHERE m.conversation_id = ?1 AND m.content LIKE ?2
+                     WHERE m.conversation_id = ?1 AND (m.content LIKE ?2 OR m.raw_payload_json LIKE ?2)
                      ORDER BY m.timestamp_ms DESC
                      LIMIT ?3 OFFSET ?4"
                 ),
             )
         } else {
             (
-                "SELECT COUNT(*) FROM messages m WHERE m.content LIKE ?1".to_string(),
+                "SELECT COUNT(*) FROM messages m WHERE (m.content LIKE ?1 OR m.raw_payload_json LIKE ?1)".to_string(),
                 format!(
                     "SELECT m.id, m.conversation_id, m.sender_id, m.source_message_id,
                             m.message_type, m.content, m.timestamp_ms, m.is_outgoing,
@@ -635,7 +635,7 @@ impl Database {
                      FROM messages m
                      JOIN participants p ON p.id = m.sender_id
                      JOIN conversations c ON c.id = m.conversation_id
-                     WHERE m.content LIKE ?1
+                     WHERE (m.content LIKE ?1 OR m.raw_payload_json LIKE ?1)
                      ORDER BY m.timestamp_ms DESC
                      LIMIT ?2 OFFSET ?3"
                 ),
@@ -925,7 +925,7 @@ impl Database {
 
                 let view = AttachmentView {
                     id,
-                    attachment_type: attach_type,
+                    attachment_type: attach_type.to_lowercase(),
                     original_uri,
                     storage_path,
                     media_url,

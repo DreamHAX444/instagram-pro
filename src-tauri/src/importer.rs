@@ -162,6 +162,8 @@ pub struct RawMessage {
     pub source_message_id: Option<String>,
     pub mid: Option<String>,
     pub id: Option<String>,
+    pub reply_to_text: Option<String>,
+    pub reply_to_message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1157,7 +1159,11 @@ impl<'a> Importer<'a> {
             let message_id = Uuid::new_v4().to_string();
 
             let message_type = determine_message_type(raw_msg);
-            let content_fixed = raw_msg.content.as_deref().map(fix_mojibake);
+            let content_fixed = raw_msg
+                .content
+                .as_deref()
+                .or(raw_msg.share.as_ref().and_then(|s| s.share_text.as_deref()))
+                .map(fix_mojibake);
             let source_mid = raw_msg
                 .source_message_id
                 .as_deref()
@@ -1616,6 +1622,13 @@ pub fn compute_message_hash(
 
     let content_digest = if let Some(content) = &raw.content {
         compute_content_digest(content)
+    } else if let Some(share) = &raw.share {
+        let text = share
+            .share_text
+            .as_deref()
+            .or(share.link.as_deref())
+            .unwrap_or("");
+        compute_content_digest(text)
     } else if let Some(audio) = &raw.audio_files {
         let uri = audio.first().and_then(|a| a.uri.as_deref()).unwrap_or("");
         compute_content_digest(uri)
@@ -1647,7 +1660,12 @@ pub fn determine_message_type(raw: &RawMessage) -> &'static str {
         || raw
             .content
             .as_deref()
-            .map(|c| c.to_lowercase().contains("call"))
+            .map(|c| {
+                let lower = c.to_lowercase();
+                lower.contains("call")
+                    || lower.contains("video chat")
+                    || lower.contains("audio chat")
+            })
             .unwrap_or(false)
     {
         "CALL"
@@ -2657,6 +2675,8 @@ mod tests {
                 source_message_id: None,
                 mid: None,
                 id: None,
+                reply_to_text: None,
+                reply_to_message_id: None,
             },
         );
 
